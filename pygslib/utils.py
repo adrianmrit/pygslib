@@ -1,8 +1,11 @@
-import pygslib
+import matplotlib.pyplot as plt
 import numpy as np
 
+from pygslib.nonlinear import EcdfContinous, HermitePolynomials, TailType
+
+
 def gcos(table, vardhole, varmodel, cutoff, model, cbb, decwt = None,
-        ltail=1, utail=4, ltpar=1, utpar=1.5, K=30,
+        ltail=TailType.Linear, utail=TailType.Hyperbolic, ltpar=1, utpar=1.5, K=30,
         ymin=None, ymax=None, ndisc = 1000):
     """
     gcos(table, mask, vardhole, varmodel, cutoff, model, cbb, decwt = None)
@@ -25,86 +28,58 @@ def gcos(table, vardhole, varmodel, cutoff, model, cbb, decwt = None,
         block variance
     decwt: str default None
         declustering weight variable name
-    ltail, utail, ltpar, utpar: floats
-        lower and upper tail model. The default parameters are ltail=1, utail=4, ltpar=1, utpar=1.5
+    ltail, utail: TailType
+        Lower and upper tail models (default Linear and Hyperbolic).
+    ltpar, utpar: floats
+        Tail parameters (default 1 and 1.5).
     K: integer
         number of polynomials. Default is 30
-    ymin, ymax: 
-        gaussian values validity interval (default None)
+    ymin, ymax:
+        Must be None. The Rust model infers its authorized interval.
     ndisc: int 
         discretization intervals in cdf. Default is 1000
     """
     
-    # firt the discrete gausian model 
-    zin = table[vardhole]
-    
-    if decwt is None:
-        w = np.ones(table[vardhole].shape[0])
-    else:
-        w = table[decwt]
-        
-    zmin = table[vardhole].min(),
-    zmax = table[vardhole].max(),  
-    
-    PCI, H, raw, zana, gauss, z, P, raw_var, PCI_var, fig1, \
-    _, _, _, _, _, _, _, _ = pygslib.nonlinear.anamor(
-       zin, w, ltail=ltail, utail=utail, ltpar=ltpar, utpar=utpar, K=K,
-       ymin=ymin, ymax=ymax, ndisc = ndisc)
+    if ymin is not None or ymax is not None:
+        raise ValueError("Rust Hermite models do not support ymin/ymax overrides")
 
-
-    r = pygslib.nonlinear.get_r(Var_Zv = cbb, PCI = PCI)
-    
-    ZV, PV, fig2, \
-    _, _, _, _, _, _, _, _  = pygslib.nonlinear.anamor_blk( PCI, H, r = r, gauss = gauss, Z = z,
-                  ltail=ltail, utail=utail, ltpar=ltpar, utpar=utpar,
-                  raw=raw, zana=zana)
-    
-    # calculate GTC
-    tt = []
-    gg = []
-    label = []
-
-    # calculate GTC from gaussian in block support
-    
-    cutoff[cutoff>ZV.max()] = ZV.max() - 0.000001 # there is an error of not like this
-    cutoff[cutoff<ZV.min()] = ZV.min() + 0.000001
-    t,ga,gb = pygslib.nonlinear.gtcurve (cutoff = cutoff, z=ZV, p=PV)
-    
-    
-    
-    tt.append(t)
-    gg.append(ga)
-    label.append(f'DGM {vardhole}')
-
-    fig = pygslib.nonlinear.plotgt(cutoff = cutoff, t = tt, g = gg, label = label)
-    
-    
-    
-    # to compare global resources with the one estimated we calculate the CDF of the blocks
-
-    # cdf of kriging estimate
+    zin = table[vardhole].to_numpy(dtype=float)
+    w = np.ones(zin.size) if decwt is None else table[decwt].to_numpy(dtype=float)
+    cdf = EcdfContinous.new_from_data(
+        zin, w, float(zin.min()), ltail, ltpar, TailType.Linear, 1.,
+        float(zin.max()), utail, utpar, 0., vardhole,
+    )
+    hermite = HermitePolynomials.new_from_cdf(cdf, ndisc, K, 1., 1., 1.)
+    r = hermite.get_r(cbb)
+    hermite.set_support(r, r, 1.)
+    _, block_grades = hermite.y2z_block(hermite.gaussians)
+    block_cdf = EcdfContinous.new_from_ik_cdf(
+        block_grades, hermite.percentiles, float(block_grades.min()),
+        ltail, ltpar, TailType.Linear, 1., float(block_grades.max()),
+        utail, utpar, f"DGM {vardhole}",
+    )
+    curves = [(f"DGM {vardhole}", block_cdf)]
     for v in varmodel:
-        parameters_probplt = {
-                'iwt'  : 0,                            
-                'va'   : model[v][model[v].notnull()].values,    
-                'wt'   : np.ones(model[v][model[v].notnull()].shape[0])} 
+        values = model[v].dropna().to_numpy(dtype=float)
+        if values.size == 0:
+            raise ValueError(f"Block model column {v!r} has no non-null values")
+        estimate_cdf = EcdfContinous.new_from_data(
+            values, np.ones(values.size), float(values.min()), ltail, ltpar,
+            TailType.Linear, 1., float(values.max()), utail, utpar, 0., v,
+        )
+        curves.append((f"Estimate {v}", estimate_cdf))
 
-    
-        binval_ok,cl_ok,xpt025,xlqt,xmed,xuqt,xpt975,xmin,xmax, \
-                xcvr,xmen,xvar,error = pygslib.gslib.__plot.probplt(**parameters_probplt)
-    
-
-        # calculate GTC ok
-        cutoff[cutoff>cl_ok.max()] = cl_ok.max() - 0.000001 # there is an error of not like this
-        cutoff[cutoff<cl_ok.min()] = cl_ok.min() + 0.000001
-        t,ga,gb = pygslib.nonlinear.gtcurve (cutoff = cutoff, z=cl_ok,
-                       p=binval_ok, varred = 1, ivtyp = 2, zmin = 0, zmax = None,
-                      ltail = ltail, ltpar = ltpar, middle = 1, mpar = 1, utail = utail,
-                      utpar =  utpar, maxdis = ndisc)
-        
-        
-        tt.append(t)
-        gg.append(ga)
-        label.append(f'Estimate {v}')
-        
-    return pygslib.nonlinear.plotgt(cutoff = cutoff, t = tt, g = gg, label = label) 
+    results = [(label, distribution.grade_tonnage(cutoff, ndisc))
+               for label, distribution in curves]
+    fig, ax1 = plt.subplots()
+    ax1.set_xlabel('cutoff')
+    ax1.set_ylabel('Tonnage')
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Grade')
+    for label, (tonnage, above, _) in results:
+        ax1.plot(cutoff, tonnage, label=label)
+        ax2.plot(cutoff, above)
+    ax1.legend(bbox_to_anchor=(1.15, 1), loc=2, borderaxespad=0.)
+    fig.tight_layout()
+    plt.show()
+    return fig

@@ -309,7 +309,6 @@ cython_modules = {
   'drillhole':  'cython_code/drillhole.pyx',
   'blockmodel': 'cython_code/blockmodel.pyx',
   'vtktools':   'cython_code/vtktools.pyx',
-  'nonlinear':  'cython_code/nonlinear.pyx',
   'sandbox':    'cython_code/sandbox.pyx',
 }
 
@@ -334,6 +333,7 @@ python_sources = [
   'pygslib/progress.py',
   'pygslib/surpac.py',
   'pygslib/utils.py',
+  'pygslib/nonlinear.py',
 ]
 
 py.install_sources(

@@ -42,6 +42,7 @@ dependencies = [
     "ipython>=8.0",
     "jupyter>=1.0",
     "ezdxf>=1.0",
+    "gslib-rust-cdf",
 ]
 
 [project.optional-dependencies]
@@ -56,10 +57,20 @@ Repository = "https://github.com/opengeostat/pygslib"
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "meson-python>=0.16.0",
+    "Cython>=3.0",
+    "ninja>=1.11",
 ]
+
+[tool.uv]
+no-build-isolation-package = ["pygslib"]
+
+[tool.uv.config-settings-package]
+pygslib = { build-dir = "build/local-rust-cdf" }
 
 [tool.uv.sources]
 pygslib = {path = ".", editable = true }
+gslib-rust-cdf = { path = "../gslib_rust_cdf" }
 
 [tool.meson-python.args]
 install = ["--skip-subprojects"]

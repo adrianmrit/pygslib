@@ -6,6 +6,7 @@ py.install_sources(
   'progress.py',
   'surpac.py',
   'utils.py',
+  'nonlinear.py',
   subdir: 'pygslib',
 )
 
